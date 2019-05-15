@@ -10,18 +10,12 @@ See [the documentation](https://docs.rs/serde_sexpr/) for more information.
 License
 -------
 
-### Code
-
-The code is licensed under either of
+Licensed under either of
 
 -	Apache License, Version 2.0, in LICENSE-APACHE
 -	MIT License, in LICENSE-MIT
 
 at your option.
-
-### Assets
-
-Unless explicitly noted otherwise, assets are taken from the Red Eclipse project, and are as such generally licensed under the Creative Commons Attribution ShareAlike 3.0 License (CC-BY-SA).
 
 ### Contribution
 
