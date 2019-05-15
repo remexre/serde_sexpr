@@ -1,0 +1,21 @@
+# Prevent this from interfering with workspaces
+[workspace]
+members = ["."]
+
+[package]
+authors = ["Automatically generated"]
+edition = "2018"
+name = "serde_sexpr-fuzz"
+publish = false
+version = "0.0.1"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = { git = "https://github.com/rust-fuzz/libfuzzer-sys.git" }
+serde_sexpr = { path = ".." }
+
+[[bin]]
+name = "fuzz_target_1"
+path = "fuzz_targets/fuzz_target_1.rs"

@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc df217e0a0e3b68dc844e2ce2f30d88838758692bba81ac70833a77ef3104391c # shrinks to v = Sym("")
+cc daa78316d88be6ef462f0108b00106046ca603b336f47d0ed6ea13c0be30b290 # shrinks to v = Sym("𝕆")
+cc 7d65413413902dab57452133707d74596c1ad2c1c482b11139d6f904233670be # shrinks to v = Sym("0")

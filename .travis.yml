@@ -1,0 +1,10 @@
+language: rust
+cache:
+- cargo
+
+install:
+- rustup component add clippy
+
+script:
+- cargo test --all
+- cargo clippy --all-features --all-targets
