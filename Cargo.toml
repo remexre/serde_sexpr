@@ -12,3 +12,4 @@ serde = "1.0.90"
 
 [dev-dependencies]
 proptest = "0.9.3"
+serde = { features = ["derive"], version = "1.0.90" }

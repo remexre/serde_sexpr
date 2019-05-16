@@ -1,5 +1,5 @@
 use crate::{Error, Result, Value};
-use serde::de::{DeserializeOwned, Deserializer, Visitor};
+use serde::de::{DeserializeOwned, DeserializeSeed, Deserializer, Visitor};
 use std::{
     io::Read,
     str::{from_utf8, FromStr},
@@ -11,13 +11,13 @@ use std::{
 ///
 /// ```
 /// # use std::io::Cursor;
-/// let c = Cursor::new("(Hello! |Goodbye, world!| |)\\|(|)".as_bytes());
+/// let c = Cursor::new("(Hello! |Goodbye,\\ world!| |\\)\\|\\(|)".as_bytes());
 /// let value: Vec<String> = serde_sexpr::from_reader(c).unwrap();
 /// assert_eq!(value, vec!["Hello!".to_string(), "Goodbye, world!".to_string(), ")|(".to_string()]);
 /// ```
 pub fn from_reader<R: Read, T: DeserializeOwned>(mut reader: R) -> Result<T> {
     let mut buf = Vec::new();
-    reader.read_to_end(&mut buf)?;
+    let _ = reader.read_to_end(&mut buf)?;
     from_slice(&buf)
 }
 
@@ -26,7 +26,7 @@ pub fn from_reader<R: Read, T: DeserializeOwned>(mut reader: R) -> Result<T> {
 /// # Examples
 ///
 /// ```
-/// let s = b"(Hello! |Goodbye, world!| |)\\|(|)";
+/// let s = b"(Hello! |Goodbye,\\ world!| |\\)\\|\\(|)";
 /// let value: Vec<String> = serde_sexpr::from_slice(s).unwrap();
 /// assert_eq!(value, vec!["Hello!".to_string(), "Goodbye, world!".to_string(), ")|(".to_string()]);
 /// ```
@@ -39,7 +39,7 @@ pub fn from_slice<T: DeserializeOwned>(slice: &[u8]) -> Result<T> {
 /// # Examples
 ///
 /// ```
-/// let s = "(Hello! |Goodbye, world!| |)\\|(|)";
+/// let s = "(Hello! |Goodbye,\\ world!| |\\)\\|\\(|)";
 /// let value: Vec<String> = serde_sexpr::from_str(s).unwrap();
 /// assert_eq!(value, vec!["Hello!".to_string(), "Goodbye, world!".to_string(), ")|(".to_string()]);
 /// ```
@@ -142,11 +142,29 @@ impl<'de> Deserializer<'de> for Value {
     }
 
     fn deserialize_option<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value> {
-        unimplemented!()
+        match &self {
+            Value::List(l) => {
+                if l.is_empty() {
+                    visitor.visit_none()
+                } else {
+                    visitor.visit_some(self)
+                }
+            }
+            Value::Sym(_) => visitor.visit_some(self),
+        }
     }
 
     fn deserialize_unit<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value> {
-        unimplemented!()
+        match &self {
+            Value::List(l) => {
+                if l.is_empty() {
+                    visitor.visit_unit()
+                } else {
+                    Err(Error::Invalid("unit", self))
+                }
+            }
+            Value::Sym(_) => Err(Error::Invalid("unit", self)),
+        }
     }
 
     fn deserialize_unit_struct<V: Visitor<'de>>(
@@ -154,7 +172,7 @@ impl<'de> Deserializer<'de> for Value {
         _name: &'static str,
         visitor: V,
     ) -> Result<V::Value> {
-        unimplemented!()
+        self.deserialize_unit(visitor)
     }
 
     fn deserialize_newtype_struct<V: Visitor<'de>>(
@@ -166,7 +184,13 @@ impl<'de> Deserializer<'de> for Value {
     }
 
     fn deserialize_seq<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value> {
-        unimplemented!()
+        match self {
+            Value::List(mut vs) => {
+                vs.reverse();
+                visitor.visit_seq(SeqAccess(vs))
+            }
+            Value::Sym(_) => Err(Error::Invalid("sequence", self)),
+        }
     }
 
     fn deserialize_tuple<V: Visitor<'de>>(self, _len: usize, visitor: V) -> Result<V::Value> {
@@ -183,7 +207,13 @@ impl<'de> Deserializer<'de> for Value {
     }
 
     fn deserialize_map<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value> {
-        unimplemented!()
+        match self {
+            Value::List(mut vs) => {
+                vs.reverse();
+                visitor.visit_map(MapAccess(vs, None))
+            }
+            Value::Sym(_) => Err(Error::Invalid("map", self)),
+        }
     }
 
     fn deserialize_struct<V: Visitor<'de>>(
@@ -192,7 +222,7 @@ impl<'de> Deserializer<'de> for Value {
         _fields: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value> {
-        unimplemented!()
+        self.deserialize_map(visitor)
     }
 
     fn deserialize_enum<V: Visitor<'de>>(
@@ -201,7 +231,7 @@ impl<'de> Deserializer<'de> for Value {
         _variants: &'static [&'static str],
         visitor: V,
     ) -> Result<V::Value> {
-        unimplemented!()
+        visitor.visit_enum(EnumAccess(self))
     }
 
     fn deserialize_identifier<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value> {
@@ -210,5 +240,101 @@ impl<'de> Deserializer<'de> for Value {
 
     fn deserialize_ignored_any<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value> {
         self.deserialize_any(visitor)
+    }
+}
+
+struct EnumAccess(Value);
+
+impl<'de> serde::de::EnumAccess<'de> for EnumAccess {
+    type Error = Error;
+    type Variant = VariantAccess;
+
+    fn variant_seed<T: DeserializeSeed<'de>>(self, seed: T) -> Result<(T::Value, Self::Variant)> {
+        match self.0 {
+            Value::List(mut vs) => {
+                if vs.is_empty() {
+                    Err(Error::Invalid("enum", Value::List(Vec::new())))
+                } else {
+                    seed.deserialize(vs.remove(0))
+                        .map(|v| (v, VariantAccess(Some(vs))))
+                }
+            }
+            v => seed.deserialize(v).map(|v| (v, VariantAccess(None))),
+        }
+    }
+}
+
+struct MapAccess(Vec<Value>, Option<Value>);
+
+impl<'de> serde::de::MapAccess<'de> for MapAccess {
+    type Error = Error;
+
+    fn next_key_seed<T: DeserializeSeed<'de>>(&mut self, seed: T) -> Result<Option<T::Value>> {
+        debug_assert!(self.1.is_none());
+        match self.0.pop() {
+            Some(Value::List(mut vs)) => {
+                if vs.len() == 2 {
+                    self.1 = vs.pop();
+                    seed.deserialize(vs.pop().unwrap()).map(Some)
+                } else {
+                    Err(Error::Invalid("pair", Value::List(vs)))
+                }
+            }
+            Some(v @ Value::Sym(_)) => Err(Error::Invalid("pair", v)),
+            None => Ok(None),
+        }
+    }
+
+    fn next_value_seed<T: DeserializeSeed<'de>>(&mut self, seed: T) -> Result<T::Value> {
+        debug_assert!(self.1.is_some());
+        seed.deserialize(self.1.take().unwrap())
+    }
+}
+
+struct SeqAccess(Vec<Value>);
+
+impl<'de> serde::de::SeqAccess<'de> for SeqAccess {
+    type Error = Error;
+
+    fn next_element_seed<T: DeserializeSeed<'de>>(&mut self, seed: T) -> Result<Option<T::Value>> {
+        if self.0.is_empty() {
+            Ok(None)
+        } else {
+            seed.deserialize(self.0.pop().unwrap()).map(Some)
+        }
+    }
+}
+
+struct VariantAccess(Option<Vec<Value>>);
+
+impl<'de> serde::de::VariantAccess<'de> for VariantAccess {
+    type Error = Error;
+
+    fn unit_variant(self) -> Result<()> {
+        debug_assert!(self.0.is_none());
+        Ok(())
+    }
+
+    fn newtype_variant_seed<T: DeserializeSeed<'de>>(self, seed: T) -> Result<T::Value> {
+        debug_assert!(self.0.is_some());
+        debug_assert_eq!(self.0.as_ref().unwrap().len(), 1);
+        let val = self.0.unwrap().pop().unwrap();
+        seed.deserialize(val)
+    }
+
+    fn tuple_variant<V: Visitor<'de>>(self, _len: usize, visitor: V) -> Result<V::Value> {
+        debug_assert!(self.0.is_some());
+        let val = Value::List(self.0.unwrap());
+        val.deserialize_seq(visitor)
+    }
+
+    fn struct_variant<V: Visitor<'de>>(
+        self,
+        _fields: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value> {
+        debug_assert!(self.0.is_some());
+        let val = Value::List(self.0.unwrap());
+        val.deserialize_map(visitor)
     }
 }
